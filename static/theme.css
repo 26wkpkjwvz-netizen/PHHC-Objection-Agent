@@ -1,0 +1,33 @@
+/* Design tokens. Swap these for the house "helper" dashboard palette/type to re-skin the app. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #dde1e7;
+  --text: #1c2330;
+  --text-2: #5a6475;
+  --accent: #1f4e8c;
+  --accent-soft: #e6eef9;
+  --high: #b42318;   --high-soft: #fdecea;
+  --medium: #b54708; --medium-soft: #fef3e6;
+  --low: #3b6b3b;    --low-soft: #eaf4ea;
+  --pass: #2e7d32;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #181e27; --surface-2: #202833; --border: #2c3543;
+    --text: #e6e9ef; --text-2: #9aa4b5; --accent: #7fb0f0; --accent-soft: #1d2a3d;
+    --high: #f47067; --high-soft: #3a1d1d; --medium: #f0a35e; --medium-soft: #3a2a17;
+    --low: #8cc98c; --low-soft: #1c2e1c; --pass: #7bc67e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #181e27; --surface-2: #202833; --border: #2c3543;
+  --text: #e6e9ef; --text-2: #9aa4b5; --accent: #7fb0f0; --accent-soft: #1d2a3d;
+  --high: #f47067; --high-soft: #3a1d1d; --medium: #f0a35e; --medium-soft: #3a2a17;
+  --low: #8cc98c; --low-soft: #1c2e1c; --pass: #7bc67e;
+}
