@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pypdf import PdfReader
 
-from . import config, db, pipeline, reasoner
+from . import config, db, llm, pipeline, reasoner
 
 STATIC_DIR = config.BASE_DIR / "static"
 
@@ -68,8 +68,14 @@ def get_config():
         "readers": config.READER_MODELS,
         "default_reader": config.DEFAULT_READER,
         "reasoner": {"model": config.REASONER_MODEL, "effort": config.REASONER_EFFORT},
+        "backend": llm.backend_label(),
         "groups": reasoner.GROUP_LABELS,
     }
+
+
+@app.get("/api/health")
+def health():
+    return llm.status()
 
 
 @app.get("/api/checklists/{category}")
@@ -287,7 +293,7 @@ def chat(review_id: int, body: ChatIn):
                for f in findings if f["status"] != "open" or f["user_note"]]
     status_note = ("Current status of findings as marked by the office: " + "; ".join(changed)) if changed else ""
 
-    answer, _usage = reasoner.chat(pipeline.client(), system, digest, delivered, history,
+    answer, _usage = reasoner.chat(system, digest, delivered, history,
                                    status_note, question)
     with db.session() as conn:
         conn.execute("INSERT INTO chat_messages (review_id, role, content, created_at) VALUES (?, 'user', ?, ?)",

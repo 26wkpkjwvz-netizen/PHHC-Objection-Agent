@@ -6,22 +6,12 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-import anthropic
 from pypdf import PdfReader
 
 from . import config, db, reader, reasoner
 from .pdf_tools import inspect_pdf, preflight
 
 log = logging.getLogger("phhc.pipeline")
-_client: anthropic.Anthropic | None = None
-
-
-def client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(max_retries=4)
-    return _client
-
 
 def _set(review_id: int, **fields) -> None:
     cols = ", ".join(f"{k} = ?" for k in fields)
@@ -71,7 +61,7 @@ def _run(review_id: int) -> None:
 
     hint = f"{filing['title']}; category: {filing['category']}; type: {filing['case_type_hint']}"
     reader_key = "sonnet" if "sonnet" in rv["reader_model"] else "haiku"
-    digest = reader.read_filing(client(), pdf_bytes, reader_key, hint,
+    digest = reader.read_filing(pdf_bytes, reader_key, hint,
                                 on_progress=lambda m: _set(review_id, progress=m))
 
     category = filing["category"]
@@ -84,7 +74,7 @@ def _run(review_id: int) -> None:
         rv = db.row(conn, "SELECT * FROM reviews WHERE id = ?", (review_id,))
         system, digest_str = load_context(conn, rv, filing)
 
-    result, usage = reasoner.review(client(), system, digest_str)
+    result, usage = reasoner.review(system, digest_str)
     total = Counter(digest["usage"])
     total_usage = {"reader": dict(total), "reasoner": usage}
 

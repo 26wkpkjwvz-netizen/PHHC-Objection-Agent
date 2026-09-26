@@ -1,9 +1,5 @@
 """Stage 2: Opus 5.5 (medium effort) reasons over the digest against the Registry checklist."""
-import json
-
-import anthropic
-
-from . import config
+from . import config, llm
 from .schemas import ReviewResult
 
 # Document types whose full text the reasoner needs; annexures are summarised by the reader.
@@ -112,65 +108,31 @@ def digest_text(filing: dict, preflight: list[dict], digest: dict, page_texts: d
     return "\n".join(parts)
 
 
-def review(client: anthropic.Anthropic, system: list[dict], digest: str) -> tuple[ReviewResult, dict]:
-    with client.messages.stream(
-        model=config.REASONER_MODEL,
-        max_tokens=64000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": config.REASONER_EFFORT},
-        system=system,
-        messages=[{"role": "user", "content": [
-            {"type": "text", "text": digest},
-            {"type": "text", "text": "Scrutinise this paper book against the checklist and return the review."},
-        ]}],
-        output_format=ReviewResult,
-    ) as stream:
-        message = stream.get_final_message()
-
-    if message.stop_reason == "refusal":
-        raise RuntimeError("The reasoning model declined to review this filing.")
-    if message.stop_reason == "max_tokens":
-        raise RuntimeError("The review was cut off before it finished (max_tokens).")
-    if message.parsed_output is None:
-        raise RuntimeError("The reasoning model returned no structured review.")
-    u = message.usage
-    usage = {"input_tokens": u.input_tokens or 0, "output_tokens": u.output_tokens or 0,
-             "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0,
-             "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0}
-    return message.parsed_output, usage
+def review(system: list[dict], digest: str) -> tuple[ReviewResult, dict]:
+    try:
+        return llm.reason(
+            model=config.REASONER_MODEL, effort=config.REASONER_EFFORT, system_blocks=system,
+            user_blocks=[{"type": "text", "text": digest},
+                         {"type": "text", "text": "Scrutinise this paper book against the checklist and return the review."}],
+            output=ReviewResult)
+    except llm.LLMError as exc:
+        raise RuntimeError(f"Review failed: {exc}") from exc
 
 
 CHAT_RULES = """You are now in a follow-up conversation with the advocate's office about this review. Answer from the file notes, the checklist and your findings. Be concrete: cite codes and page numbers, draft text when asked, and say plainly when something cannot be verified from the file. If the office disputes a finding and is right, say so. Reply in plain prose with short lists where useful; no JSON."""
 
 
-def chat(client: anthropic.Anthropic, system: list[dict], digest: str, findings_json: str,
-         history: list[dict], status_note: str, question: str) -> tuple[str, dict]:
+def chat(system: list[dict], digest: str, findings_json: str, history: list[dict],
+         status_note: str, question: str) -> tuple[str, dict]:
     context = [
         {"type": "text", "text": digest},
         {"type": "text", "text": f"YOUR REVIEW FINDINGS (as first delivered)\n{findings_json}",
          "cache_control": {"type": "ephemeral"}},
     ]
-    messages = []
-    turns = history + [{"role": "user", "content": f"{status_note}\n\n{question}".strip()}]
-    for i, turn in enumerate(turns):
-        if i == 0:
-            messages.append({"role": "user",
-                             "content": context + [{"type": "text", "text": turn["content"]}]})
-        else:
-            messages.append({"role": turn["role"], "content": turn["content"]})
-
-    with client.messages.stream(
-        model=config.REASONER_MODEL,
-        max_tokens=32000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": config.REASONER_EFFORT},
-        system=system + [{"type": "text", "text": CHAT_RULES}],
-        messages=messages,
-    ) as stream:
-        message = stream.get_final_message()
-
-    if message.stop_reason == "refusal":
-        return "The model declined to answer this question.", {}
-    text = "".join(b.text for b in message.content if b.type == "text").strip()
-    return text, {"input_tokens": message.usage.input_tokens or 0,
-                  "output_tokens": message.usage.output_tokens or 0}
+    try:
+        return llm.converse(model=config.REASONER_MODEL, effort=config.REASONER_EFFORT,
+                            system_blocks=system + [{"type": "text", "text": CHAT_RULES}],
+                            context_blocks=context, history=history,
+                            question=f"{status_note}\n\n{question}".strip())
+    except llm.LLMError as exc:
+        return f"Could not get an answer: {exc}", {}

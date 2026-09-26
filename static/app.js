@@ -173,8 +173,10 @@ function renderReview(rv) {
 
   const u = rv.usage || {};
   const r = u.reader || {}, o = u.reasoner || {};
+  const cost = (r.cost_usd || 0) + (o.cost_usd || 0);
   $("#rv-usage").textContent = r.input_tokens != null
-    ? `Tokens - reader: ${r.input_tokens} in / ${r.output_tokens} out; reasoner: ${o.input_tokens} in / ${o.output_tokens} out.` : "";
+    ? `Tokens - reader: ${r.input_tokens} in / ${r.output_tokens} out; reasoner: ${o.input_tokens} in / ${o.output_tokens} out.`
+      + (cost ? ` Equivalent API cost ~$${cost.toFixed(2)} (covered by the subscription when run through Claude Code).` : "") : "";
 
   renderChat(rv);
   bindPageLinks();
@@ -355,6 +357,11 @@ $("#note-form").addEventListener("submit", async (e) => {
 (async function boot() {
   state.config = await api("/api/config");
   $("#reader").value = state.config.default_reader;
-  $("#model-foot").innerHTML = `Reader: ${esc(state.config.readers.haiku)} / ${esc(state.config.readers.sonnet)}<br>Reasoner: ${esc(state.config.reasoner.model)} (${esc(state.config.reasoner.effort)})`;
+  $("#model-foot").innerHTML = `Via ${esc(state.config.backend)}<br>Reader: ${esc(state.config.readers.haiku)} / ${esc(state.config.readers.sonnet)}<br>Reasoner: ${esc(state.config.reasoner.model)} (${esc(state.config.reasoner.effort)})`;
   route();
+  api("/api/health").then((h) => {
+    if (h.ok) return;
+    $("#health-banner").innerHTML = `<strong>Claude is not ready.</strong> ${esc(h.detail)}`;
+    $("#health-banner").classList.remove("hidden");
+  }).catch(() => {});
 })();

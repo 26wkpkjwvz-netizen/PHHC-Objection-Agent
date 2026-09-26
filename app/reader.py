@@ -1,11 +1,8 @@
-"""Stage 1: a fast model (Haiku 4.5 / Sonnet 5) reads the paper book page by page."""
-import base64
+"""Stage 2: a fast model (Haiku 4.5 / Sonnet 5) reads the paper book page by page."""
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-import anthropic
-
-from . import config
+from . import config, llm
 from .pdf_tools import split_pdf
 from .schemas import ChunkRead
 
@@ -16,50 +13,21 @@ For every page in the attached PDF chunk, record what the page is, what is physi
 Be literal. Quote names, numbers and dates exactly as printed. If something is absent, do not invent it; say so in concerns only when its absence on that page is itself notable (e.g. an affidavit page with no deponent signature, an index without a page column, a vernacular annexure without translation nearby). Keep key_content dense: no filler, no legal opinion."""
 
 
-def _usage_dict(usage) -> dict:
-    return {
-        "input_tokens": usage.input_tokens or 0,
-        "output_tokens": usage.output_tokens or 0,
-        "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
-        "cache_creation_input_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
-    }
-
-
-def read_chunk(client: anthropic.Anthropic, model: str, first: int, last: int, blob: bytes,
-               filing_hint: str) -> tuple[ChunkRead, dict]:
+def read_chunk(model: str, first: int, last: int, blob: bytes, filing_hint: str) -> tuple[ChunkRead, dict]:
     prompt = (
         f"This chunk contains pages {first} to {last} of the uploaded paper book "
         f"(PDF page 1 of this chunk = page {first}). Report one entry per page, numbered "
         f"{first}..{last}.\nFiling details given by the advocate: {filing_hint or 'none'}."
     )
-    with client.messages.stream(
-        model=model,
-        max_tokens=32000,
-        system=[{"type": "text", "text": READER_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "document",
-                 "source": {"type": "base64", "media_type": "application/pdf",
-                            "data": base64.standard_b64encode(blob).decode()}},
-                {"type": "text", "text": prompt},
-            ],
-        }],
-        output_format=ChunkRead,
-    ) as stream:
-        message = stream.get_final_message()
-
-    if message.stop_reason == "refusal":
-        raise RuntimeError(f"Reader declined pages {first}-{last}.")
-    if message.stop_reason == "max_tokens":
-        raise RuntimeError(f"Reader output for pages {first}-{last} was cut off; lower PHHC_READER_CHUNK_PAGES.")
-    parsed = message.parsed_output
-    if parsed is None:
-        raise RuntimeError(f"Reader returned no structured output for pages {first}-{last}.")
-    return parsed, _usage_dict(message.usage)
+    try:
+        parsed, usage = llm.read_pdf(model=model, system=READER_SYSTEM, prompt=prompt, pdf=blob,
+                                     output=ChunkRead)
+    except llm.LLMError as exc:
+        raise RuntimeError(f"Reader failed on pages {first}-{last}: {exc}") from exc
+    return parsed, usage
 
 
-def read_filing(client: anthropic.Anthropic, pdf_bytes: bytes, reader_key: str,
+def read_filing(pdf_bytes: bytes, reader_key: str,
                 filing_hint: str, on_progress=lambda msg: None) -> dict:
     """Read the whole PDF in parallel chunks and merge into one digest."""
     model = config.READER_MODELS.get(reader_key, config.READER_MODELS[config.DEFAULT_READER])
@@ -69,7 +37,7 @@ def read_filing(client: anthropic.Anthropic, pdf_bytes: bytes, reader_key: str,
 
     def work(chunk):
         first, last, blob = chunk
-        return first, *read_chunk(client, model, first, last, blob, filing_hint)
+        return first, *read_chunk(model, first, last, blob, filing_hint)
 
     results = []
     with ThreadPoolExecutor(max_workers=config.READER_CONCURRENCY) as pool:

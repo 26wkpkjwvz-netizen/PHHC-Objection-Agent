@@ -23,40 +23,70 @@ PDF upload ──► 1. Preflight (pypdf, no model)
 * **Reader choice:** Haiku is fast and cheap for typed paper books. Pick Sonnet for scanned or handwritten files, and for vernacular annexures. You can re-run any filing with the other reader, and every review is kept.
 * **Criminal law after 1 July 2024:** the checklist cites Cr.P.C. sections. The reasoner treats the BNSS equivalents as the same requirement (438→482, 439→483, 482→528, 389→430, 397→438, 378→419, 372→413, 125→144).
 * **House notes:** add lessons from objection memos you actually receive, either globally or against a specific code. You can also click *Save as house note* on any finding. Every later review reads them.
+* **Where the models run:** by default through the Claude Code CLI on the office Mac, using its Claude subscription login (see below).
 * **Chat:** Opus answers follow-up questions from the same digest, checklist and findings. It also sees which findings the office has marked fixed or dismissed.
 
-## Setup
+## Running it on a Mac with your Claude subscription
 
-Requires Python 3.10+.
+The app does not need an API key. Every model call goes through the **Claude Code CLI** installed on the Mac (`claude -p`), which runs on the Claude Pro/Max subscription it is logged in with. Any `ANTHROPIC_API_KEY` in the environment is deliberately hidden from the CLI, so usage always goes to the subscription.
+
+One-time setup:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
+# 1. Claude Code: install it, then run it once and sign in with the office's Claude account
+curl -fsSL https://claude.ai/install.sh | bash     # or: brew install --cask claude-code
+claude                                             # choose "Claude account with subscription", then /exit
+claude auth status                                 # should show "loggedIn": true
+
+# 2. Python 3.10+ (macOS ships an older one)
+brew install python@3.12
+
+# 3. The app
+git clone https://github.com/26wkpkjwvz-netizen/PHHC-Objection-Agent.git
+cd PHHC-Objection-Agent
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # put your ANTHROPIC_API_KEY in it
-./run.sh                    # http://127.0.0.1:8000
+cp .env.example .env                               # optional: only for overrides
 ```
 
-The SQLite database and uploaded PDFs are stored in `./data/` (change this with `PHHC_DATA_DIR`). The checklists are seeded into SQLite on every start.
+Every day:
+
+```bash
+cd PHHC-Objection-Agent && source .venv/bin/activate && ./run.sh
+# open http://127.0.0.1:8000
+```
+
+If Claude Code is missing or logged out, the dashboard shows a red banner telling you what to do.
+
+**Usage and limits.** Reviews count against the subscription's Claude Code usage limits. Each review makes one reader call per 20 pages plus one Opus call; each chat question is one more Opus call. A 200-page paper book uses about 11 calls. The review page shows the equivalent API cost for reference only. Your plan needs Opus access in Claude Code. If it doesn't have it, set `PHHC_REASONER_MODEL=claude-sonnet-5` in `.env`. The subscription belongs to the office, so run the app for the office's own use only; don't offer it to outside users on your login.
+
+**Using an API key instead** (for example on a server): set `PHHC_BACKEND=api` and `ANTHROPIC_API_KEY` in `.env`.
+
+The SQLite database and uploaded PDFs are kept in `./data/` (change this with `PHHC_DATA_DIR`). The checklists are seeded into SQLite on every start.
 
 ### Configuration (`.env`)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | – | Required |
+| `PHHC_BACKEND` | `claude_cli` | `claude_cli` (subscription via Claude Code) or `api` |
+| `PHHC_CLAUDE_BIN` | `claude` | Full path to the CLI if it is not on PATH (e.g. `~/.local/bin/claude`) |
+| `PHHC_CLI_TIMEOUT_S` | `1200` | Maximum seconds for one CLI call |
 | `PHHC_REASONER_MODEL` | `claude-opus-5-5` | Reasoning / chat model |
 | `PHHC_REASONER_EFFORT` | `medium` | `low` … `max` |
 | `PHHC_READER_HAIKU` / `PHHC_READER_SONNET` | `claude-haiku-4-5` / `claude-sonnet-5` | Reader models |
 | `PHHC_DEFAULT_READER` | `haiku` | Pre-selected reader |
-| `PHHC_READER_CHUNK_PAGES` | `20` | Pages per reader request (Haiku's limit is 100) |
-| `PHHC_READER_CONCURRENCY` | `4` | Parallel reader requests |
+| `PHHC_READER_CHUNK_PAGES` | `20` | Pages per reader call |
+| `PHHC_READER_CONCURRENCY` | `2` (CLI) / `4` (API) | Parallel reader calls |
 | `PHHC_MAX_UPLOAD_MB` | `80` | Upload limit |
+| `ANTHROPIC_API_KEY` | – | Only for `PHHC_BACKEND=api` |
 
 ## Project layout
 
 ```
 app/
   checklists/{civil,criminal,writ}.json   Registry checklists (source of truth, edit here)
-  config.py      models, effort, paths
+  config.py      backend, models, effort, paths
+  llm.py         model calls: Claude Code CLI (subscription) or Anthropic API
   db.py          SQLite schema + seeding
   pdf_tools.py   preflight checks, chunking
   schemas.py     structured-output schemas (reader page notes, review findings)

@@ -13,7 +13,7 @@ from app.schemas import ChunkRead, Finding, PageNote, ReviewResult
 CALLS = {}
 
 
-def fake_read_chunk(client, model, first, last, blob, hint):
+def fake_read_chunk(model, first, last, blob, hint):
     CALLS.setdefault("reader", []).append((model, first, last))
     pages = [PageNote(page=p, doc_type="index" if p == 1 else "annexure", document_title=f"Doc {p}",
                       printed_page_number=str(p), page_number_position="top_right", language="English",
@@ -24,7 +24,7 @@ def fake_read_chunk(client, model, first, last, blob, hint):
                      pages=pages), {"input_tokens": 100, "output_tokens": 50}
 
 
-def fake_review(client, system, digest):
+def fake_review(system, digest):
     CALLS["reasoner_digest"] = digest
     CALLS["reasoner_system"] = system
     return ReviewResult(
@@ -41,7 +41,7 @@ def fake_review(client, system, digest):
     ), {"input_tokens": 1000, "output_tokens": 400}
 
 
-def fake_chat(client, system, digest, findings_json, history, status_note, question):
+def fake_chat(system, digest, findings_json, history, status_note, question):
     CALLS["chat"] = {"history": history, "status_note": status_note, "question": question}
     return f"Answer to: {question}", {}
 
