@@ -42,7 +42,8 @@ def inline_schema(model: type[BaseModel]) -> dict:
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(defs[node["$ref"].split("/")[-1]])
-            return {k: walk(v) for k, v in node.items() if k != "title"}
+            # Drop "title" annotations (strings) but keep properties that are named "title".
+            return {k: walk(v) for k, v in node.items() if not (k == "title" and isinstance(v, str))}
         if isinstance(node, list):
             return [walk(v) for v in node]
         return node

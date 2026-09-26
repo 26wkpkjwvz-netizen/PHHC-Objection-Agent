@@ -40,6 +40,26 @@ def fake_cli(tmp_path, monkeypatch):
     return lambda: json.loads(log.read_text())
 
 
+def _check_required(node):
+    if isinstance(node, dict):
+        if "required" in node:
+            assert set(node["required"]) <= set(node.get("properties", {})), node["required"]
+        for v in node.values():
+            _check_required(v)
+    elif isinstance(node, list):
+        for v in node:
+            _check_required(v)
+
+
+@pytest.mark.parametrize("model", [ChunkRead, ReviewResult])
+def test_inline_schema_keeps_every_required_property(model):
+    schema = llm.inline_schema(model)
+    _check_required(schema)
+    finding = schema["properties"]["findings"]["items"] if model is ReviewResult else None
+    if finding:
+        assert "title" in finding["properties"]          # a field literally named "title"
+
+
 def test_inline_schema_has_no_refs():
     text = json.dumps(llm.inline_schema(ReviewResult))
     assert "$ref" not in text and "$defs" not in text
